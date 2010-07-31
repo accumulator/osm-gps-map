@@ -312,7 +312,7 @@ static void     osm_gps_map_tile_download_complete (SoupMessage *msg, gpointer u
 #else
 static void     osm_gps_map_tile_download_complete (SoupSession *session, SoupMessage *msg, gpointer user_data);
 #endif
-static void     osm_gps_map_download_tile (OsmGpsMap *map, int zoom, int x, int y, gboolean redraw);
+static void     osm_gps_map_download_tile (OsmGpsMap *map, int zoom, int x, int y, gboolean redraw, gboolean emit_update_queued);
 static void     osm_gps_map_load_tile (OsmGpsMap *map, int zoom, int x, int y, int offset_x, int offset_y);
 static void     osm_gps_map_fill_tiles_pixel (OsmGpsMap *map);
 static gboolean osm_gps_map_map_redraw (OsmGpsMap *map);
@@ -855,7 +855,7 @@ osm_gps_map_get_tile_filename (OsmGpsMap *map, int zoom, int x, int y)
 }
 
 static void
-osm_gps_map_download_tile (OsmGpsMap *map, int zoom, int x, int y, gboolean redraw)
+osm_gps_map_download_tile (OsmGpsMap *map, int zoom, int x, int y, gboolean redraw, gboolean emit_update_queued)
 {
     SoupMessage *msg;
     OsmGpsMapPrivate *priv = map->priv;
@@ -909,7 +909,8 @@ osm_gps_map_download_tile (OsmGpsMap *map, int zoom, int x, int y, gboolean redr
 #endif
 
             g_hash_table_insert (priv->tile_queue, dl->uri, msg);
-            g_object_notify (G_OBJECT (map), "tiles-queued");
+            if (emit_update_queued)
+                g_object_notify (G_OBJECT (map), "tiles-queued");
             /* the soup session unrefs the message when the download finishes */
             soup_session_queue_message (priv->soup_session, msg, osm_gps_map_tile_download_complete, dl);
         } else {
@@ -1035,7 +1036,7 @@ osm_gps_map_load_tile (OsmGpsMap *map, int zoom, int x, int y, int offset_x, int
         g_object_unref (pixbuf);
     } else {
         if (priv->map_auto_download_enabled) {
-            osm_gps_map_download_tile(map, zoom, x, y, TRUE);
+            osm_gps_map_download_tile(map, zoom, x, y, TRUE, TRUE);
         }
 
         /* try to render the tile by scaling cached tiles from other zoom
@@ -2625,7 +2626,7 @@ osm_gps_map_download_maps (OsmGpsMap *map, OsmGpsMapPoint *pt1, OsmGpsMapPoint *
                     /* x = i, y = j */
                     filename = osm_gps_map_get_tile_filename(map, zoom, i, j);
                     if (!g_file_test(filename, G_FILE_TEST_EXISTS)) {
-                        osm_gps_map_download_tile(map, zoom, i, j, FALSE);
+                        osm_gps_map_download_tile(map, zoom, i, j, FALSE, FALSE);
                         num_tiles++;
                     }
                     g_free(filename);
@@ -2633,6 +2634,8 @@ osm_gps_map_download_maps (OsmGpsMap *map, OsmGpsMapPoint *pt1, OsmGpsMapPoint *
             }
             g_debug("DL @Z:%d = %d tiles", zoom, num_tiles);
         }
+
+        g_object_notify (G_OBJECT (map), "tiles-queued");
     }
 }
 
