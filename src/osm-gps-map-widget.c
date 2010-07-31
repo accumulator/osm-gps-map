@@ -826,7 +826,6 @@ osm_gps_map_tile_download_complete (SoupSession *session, SoupMessage *msg, gpoi
         } else if (msg->status_code == SOUP_STATUS_CANCELLED) {
             /* called as application exit or after osm_gps_map_download_cancel_all */
             g_hash_table_remove(priv->tile_queue, dl->uri);
-            g_object_notify(G_OBJECT(map), "tiles-queued");
         } else {
             g_warning("Error downloading tile: %d - %s", msg->status_code, msg->reason_phrase);
 #if USE_LIBSOUP22
@@ -2658,6 +2657,7 @@ osm_gps_map_download_cancel_all (OsmGpsMap *map)
 {
     OsmGpsMapPrivate *priv = map->priv;
     g_hash_table_foreach (priv->tile_queue, (GHFunc)cancel_message, priv->soup_session);
+    g_object_notify (G_OBJECT (map), "tiles-queued");
 }
 
 /**
