@@ -2287,6 +2287,14 @@ osm_gps_map_class_init (OsmGpsMapClass *klass)
     /* default implementation of draw_gps_point */
     klass->draw_gps_point = osm_gps_map_draw_gps_point;
 
+    /**
+     * OsmGpsMap:double-pixel:
+     *
+     * Controls whether the map will use the tiles one zoom level up and double
+     * the pixels. This improves readability on devices with very high DPI.
+     *
+     * Since: 0.7.3
+     */
     g_object_class_install_property (object_class,
                                      PROP_DOUBLE_PIXEL,
                                      g_param_spec_boolean ("double-pixel",
