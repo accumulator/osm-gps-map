@@ -240,6 +240,7 @@ struct _OsmGpsMapPrivate
     guint trip_history_record_enabled : 1;
     guint trip_history_show_enabled : 1;
     guint gps_point_enabled : 1;
+    guint double_pixel : 1;
 
     /* state flags */
     guint is_disposed : 1;
@@ -275,6 +276,7 @@ typedef struct {
 enum
 {
     PROP_0,
+    PROP_DOUBLE_PIXEL,
     PROP_AUTO_CENTER,
     PROP_RECORD_TRIP_HISTORY,
     PROP_SHOW_TRIP_HISTORY,
@@ -712,16 +714,35 @@ osm_gps_map_blit_tile(OsmGpsMap *map, GdkPixbuf *pixbuf, int offset_x, int offse
 {
     OsmGpsMapPrivate *priv = map->priv;
 
-    g_debug("Queing redraw @ %d,%d (w:%d h:%d)", offset_x,offset_y, TILESIZE,TILESIZE);
+    if (priv->double_pixel) {
+        g_debug("Queing redraw @ %d,%d (w:%d h:%d)", offset_x,offset_y, TILESIZE*2,TILESIZE*2);
 
-    /* draw pixbuf onto pixmap */
-    gdk_draw_pixbuf (priv->pixmap,
-                     priv->gc_map,
-                     pixbuf,
-                     0,0,
-                     offset_x,offset_y,
-                     TILESIZE,TILESIZE,
-                     GDK_RGB_DITHER_NONE, 0, 0);
+        GdkPixbuf *double_pixbuf = gdk_pixbuf_scale_simple (pixbuf, TILESIZE*2, TILESIZE*2,
+                                      GDK_INTERP_NEAREST);
+
+        /* draw pixbuf onto pixmap */
+        gdk_draw_pixbuf (priv->pixmap,
+                         priv->gc_map,
+                         double_pixbuf,
+                         0,0,
+                         offset_x,offset_y,
+                         TILESIZE*2,TILESIZE*2,
+                         GDK_RGB_DITHER_NONE, 0, 0);
+        g_object_unref (double_pixbuf);
+    }
+    else
+    {
+        g_debug("Queing redraw @ %d,%d (w:%d h:%d)", offset_x,offset_y, TILESIZE,TILESIZE);
+
+        /* draw pixbuf onto pixmap */
+        gdk_draw_pixbuf (priv->pixmap,
+                         priv->gc_map,
+                         pixbuf,
+                         0,0,
+                         offset_x,offset_y,
+                         TILESIZE,TILESIZE,
+                         GDK_RGB_DITHER_NONE, 0, 0);
+    }
 }
 
 /* libsoup-2.2 and libsoup-2.4 use different ways to store the body data */
@@ -1064,13 +1085,7 @@ osm_gps_map_load_tile (OsmGpsMap *map, int zoom, int x, int y, int offset_x, int
          * levels */
         pixbuf = osm_gps_map_render_missing_tile (map, zoom, x, y);
         if (pixbuf) {
-            gdk_draw_pixbuf (priv->pixmap,
-                             priv->gc_map,
-                             pixbuf,
-                             0,0,
-                             offset_x,offset_y,
-                             TILESIZE,TILESIZE,
-                             GDK_RGB_DITHER_NONE, 0, 0);
+            osm_gps_map_blit_tile (map, pixbuf, offset_x,offset_y);
             g_object_unref (pixbuf);
         } else {
             /* prevent some artifacts when drawing not yet loaded areas. */
@@ -1101,44 +1116,88 @@ osm_gps_map_fill_tiles_pixel (OsmGpsMap *map)
     gtk_widget_get_allocation(GTK_WIDGET(map), &allocation);
     style = gtk_widget_get_style(GTK_WIDGET(map));
 
-    offset_x = - priv->map_x % TILESIZE;
-    offset_y = - priv->map_y % TILESIZE;
-    if (offset_x > 0) offset_x -= TILESIZE;
-    if (offset_y > 0) offset_y -= TILESIZE;
-
-    offset_xn = offset_x + EXTRA_BORDER;
-    offset_yn = offset_y + EXTRA_BORDER;
-
-    tiles_nx = (allocation.width  - offset_x) / TILESIZE + 1;
-    tiles_ny = (allocation.height - offset_y) / TILESIZE + 1;
-
-    tile_x0 =  floor((float)priv->map_x / (float)TILESIZE);
-    tile_y0 =  floor((float)priv->map_y / (float)TILESIZE);
-
-    //TODO: implement wrap around
-    for (i=tile_x0; i<(tile_x0+tiles_nx);i++)
+    if (priv->double_pixel)
     {
-        for (j=tile_y0;  j<(tile_y0+tiles_ny); j++)
-        {
-            if( j<0 || i<0 || i>=exp(priv->map_zoom * M_LN2) || j>=exp(priv->map_zoom * M_LN2))
-            {
-                gdk_draw_rectangle (priv->pixmap,
-                                    style->white_gc,
-                                    TRUE,
-                                    offset_xn, offset_yn,
-                                    TILESIZE,TILESIZE);
-            }
-            else
-            {
-                osm_gps_map_load_tile(map,
-                                      priv->map_zoom,
-                                      i,j,
-                                      offset_xn,offset_yn);
-            }
-            offset_yn += TILESIZE;
-        }
-        offset_xn += TILESIZE;
+        offset_x = - priv->map_x % (TILESIZE*2);
+        offset_y = - priv->map_y % (TILESIZE*2);
+        if (offset_x > 0) offset_x -= (TILESIZE*2);
+        if (offset_y > 0) offset_y -= (TILESIZE*2);
+
+        offset_xn = offset_x + EXTRA_BORDER;
         offset_yn = offset_y + EXTRA_BORDER;
+
+        tiles_nx = (allocation.width  - offset_x) / (TILESIZE*2) + 1;
+        tiles_ny = (allocation.height - offset_y) / (TILESIZE*2) + 1;
+
+        tile_x0 =  floor((float)priv->map_x / (float)(TILESIZE*2));
+        tile_y0 =  floor((float)priv->map_y / (float)(TILESIZE*2));
+
+        for (i=tile_x0; i<(tile_x0+tiles_nx);i++)
+            {
+            for (j=tile_y0;  j<(tile_y0+tiles_ny); j++)
+                {
+                if( j<0 || i<0 || i>=exp(priv->map_zoom * M_LN2) || j>=exp(priv->map_zoom * M_LN2))
+                    {
+                        gdk_draw_rectangle (priv->pixmap,
+                                            GTK_WIDGET(map)->style->white_gc,
+                                            TRUE,
+                                           offset_xn, offset_yn,
+                                            TILESIZE*2, TILESIZE*2);
+                    }
+                    else
+                    {
+                        osm_gps_map_load_tile(map,
+                                              priv->map_zoom - 1,
+                                              i,j,
+                                              offset_xn,offset_yn);
+                    }
+                offset_yn += TILESIZE*2;
+            }
+            offset_xn += TILESIZE*2;
+            offset_yn = offset_y + EXTRA_BORDER;
+        }
+    }
+    else
+    {
+        offset_x = - priv->map_x % TILESIZE;
+        offset_y = - priv->map_y % TILESIZE;
+        if (offset_x > 0) offset_x -= TILESIZE;
+        if (offset_y > 0) offset_y -= TILESIZE;
+
+        offset_xn = offset_x + EXTRA_BORDER;
+        offset_yn = offset_y + EXTRA_BORDER;
+
+        tiles_nx = (allocation.width  - offset_x) / TILESIZE + 1;
+        tiles_ny = (allocation.height - offset_y) / TILESIZE + 1;
+
+        tile_x0 =  floor((float)priv->map_x / (float)TILESIZE);
+        tile_y0 =  floor((float)priv->map_y / (float)TILESIZE);
+
+        //TODO: implement wrap around
+        for (i=tile_x0; i<(tile_x0+tiles_nx);i++)
+        {
+            for (j=tile_y0;  j<(tile_y0+tiles_ny); j++)
+            {
+                if( j<0 || i<0 || i>=exp(priv->map_zoom * M_LN2) || j>=exp(priv->map_zoom * M_LN2))
+                {
+                    gdk_draw_rectangle (priv->pixmap,
+                                        style->white_gc,
+                                        TRUE,
+                                        offset_xn, offset_yn,
+                                        TILESIZE,TILESIZE);
+                }
+                else
+                {
+                    osm_gps_map_load_tile(map,
+                                          priv->map_zoom,
+                                          i,j,
+                                          offset_xn,offset_yn);
+                }
+                offset_yn += TILESIZE;
+            }
+            offset_xn += TILESIZE;
+            offset_yn = offset_y + EXTRA_BORDER;
+        }
     }
 }
 
@@ -1721,6 +1780,10 @@ osm_gps_map_set_property (GObject *object, guint prop_id, const GValue *value, G
 
     switch (prop_id)
     {
+        case PROP_DOUBLE_PIXEL:
+            priv->double_pixel = g_value_get_boolean(value);
+            osm_gps_map_map_redraw_idle(map);
+            break;
         case PROP_AUTO_CENTER:
             priv->map_auto_center_enabled = g_value_get_boolean (value);
             break;
@@ -1845,6 +1908,9 @@ osm_gps_map_get_property (GObject *object, guint prop_id, GValue *value, GParamS
 
     switch (prop_id)
     {
+        case PROP_DOUBLE_PIXEL:
+            g_value_set_boolean(value, priv->double_pixel);
+            break;
         case PROP_AUTO_CENTER:
             g_value_set_boolean(value, priv->map_auto_center_enabled);
             break;
@@ -2232,6 +2298,22 @@ osm_gps_map_class_init (OsmGpsMapClass *klass)
 
     /* default implementation of draw_gps_point */
     klass->draw_gps_point = osm_gps_map_draw_gps_point;
+
+    /**
+     * OsmGpsMap:double-pixel:
+     *
+     * Controls whether the map will use the tiles one zoom level up and double
+     * the pixels. This improves readability on devices with very high DPI.
+     *
+     * Since: 0.7.3
+     */
+    g_object_class_install_property (object_class,
+                                     PROP_DOUBLE_PIXEL,
+                                     g_param_spec_boolean ("double-pixel",
+                                                           "double pixel",
+                                                           "double map pixels for better readability",
+                                                           FALSE,
+                                                           G_PARAM_READABLE | G_PARAM_WRITABLE | G_PARAM_CONSTRUCT));
 
     g_object_class_install_property (object_class,
                                      PROP_AUTO_CENTER,
